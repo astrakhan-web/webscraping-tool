@@ -29,4 +29,5 @@ services:
 
   - type: redis
     name: webscraping-redis
-    plan: free 
+    plan: free
+    ipAllowList: [] 
