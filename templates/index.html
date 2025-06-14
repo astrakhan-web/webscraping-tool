@@ -97,11 +97,14 @@
 
         document.getElementById('scrapeForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            console.log('フォーム送信開始');
 
             const url = document.getElementById('url').value;
             const exclude_paths = document.getElementById('exclude_paths').value;
             const enable_ocr = 'off';  // 固定でOFF
             const enable_pdf = 'off';  // 固定でOFF
+            
+            console.log('URL:', url, 'exclude_paths:', exclude_paths);
             const loading = document.querySelector('.loading');
             const progress = document.querySelector('.progress');
             const result = document.getElementById('result');
