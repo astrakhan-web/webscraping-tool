@@ -48,9 +48,16 @@
                             <label class="form-check-label" for="pdf_on">ON</label>
                         </div>
                     </div>
-                    <div class="alert alert-warning mt-3" id="heavyNotice">
-                        ※ 画像OCRやPDF抽出をONにすると、処理が非常に重くなりダウンロードエラーが発生する場合があります。通常はOFF（推奨）でご利用ください。
-                    </div> -->
+                                         <div class="alert alert-warning mt-3" id="heavyNotice">
+                         ※ 画像OCRやPDF抽出をONにすると、処理が非常に重くなりダウンロードエラーが発生する場合があります。通常はOFF（推奨）でご利用ください。
+                     </div> -->
+                    <div class="alert alert-warning mt-3">
+                        <strong>⚠️ 無料サーバーの制限について：</strong><br>
+                        • 処理時間は最大15分までです<br>
+                        • 100ページ以上の大規模サイトは処理できません<br>
+                        • 小〜中規模サイト（10-50ページ程度）での利用を推奨します<br>
+                        • 処理が途中で停止した場合は、除外パスを設定してページ数を減らしてください
+                    </div>
                     <div class="mt-3">
                         <button type="button" class="btn btn-success ms-2" id="listUrlsBtn">ページ一覧をCSVでダウンロード</button>
                         <button type="submit" class="btn btn-primary">スクレイピング開始</button>
