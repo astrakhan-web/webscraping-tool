@@ -1,9 +1,10 @@
 from flask import Flask, render_template, request, send_file, jsonify
-from celery import Celery, current_task
 import os
 from datetime import datetime
-from scrape import scrape_website, list_all_urls, list_all_urls_with_stats  # 既存のスクレイピング関数をインポート
+from scrape import scrape_website, list_all_urls, list_all_urls_with_stats
 from urllib.parse import urlparse
+import threading
+import time
 
 app = Flask(__name__)
 
@@ -15,31 +16,28 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
-# Celeryの設定 - 環境変数からRedis URLを取得
-redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-app.config['CELERY_BROKER_URL'] = redis_url
-app.config['CELERY_RESULT_BACKEND'] = redis_url
-
-celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
-celery.conf.update(app.config)
-
 # 出力ディレクトリの作成
 UPLOAD_FOLDER = 'outputs'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
+# タスクの状態を管理する辞書
+task_status = {}
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@celery.task(bind=True)
-def scrape_task(self, url, exclude_paths, enable_ocr, enable_pdf, include_only_prefix):
+def run_scrape_task(task_id, url, exclude_paths, enable_ocr, enable_pdf, include_only_prefix):
+    """バックグラウンドでスクレイピングを実行する関数"""
     try:
+        task_status[task_id] = {'status': 'processing', 'done': 0, 'total': 0}
+        
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_file = os.path.join(UPLOAD_FOLDER, f'scraped_{timestamp}.docx')
         
         def progress_callback(done, total):
-            self.update_state(state='PROGRESS', meta={'done': done, 'total': total})
+            task_status[task_id].update({'done': done, 'total': total})
         
         # スクレイピング実行
         result = scrape_website(
@@ -51,9 +49,9 @@ def scrape_task(self, url, exclude_paths, enable_ocr, enable_pdf, include_only_p
             include_only_prefix=include_only_prefix,
             progress_callback=progress_callback
         )
-        return {'status': 'completed', 'file_path': result}
+        task_status[task_id] = {'status': 'completed', 'file_path': result}
     except Exception as e:
-        return {'status': 'failed', 'error': str(e)}
+        task_status[task_id] = {'status': 'failed', 'error': str(e)}
 
 @app.route('/scrape', methods=['POST', 'OPTIONS'])
 def start_scrape():
@@ -64,15 +62,29 @@ def start_scrape():
         exclude_paths = request.form.get('exclude_paths', '')
         enable_ocr = request.form.get('enable_ocr', 'off') == 'on'
         enable_pdf = request.form.get('enable_pdf', 'off') == 'on'
+        
         if not url:
             return jsonify({'error': 'URLが指定されていません'}), 400
+            
         exclude_paths_list = [p.strip() for p in exclude_paths.split(',') if p.strip()]
+        
         # URLのパス部分を自動的にinclude_only_prefixに
         parsed = urlparse(url)
         path = parsed.path.rstrip('/')
         include_only_prefix = [path] if path else []
-        task = scrape_task.delay(url, exclude_paths_list, enable_ocr, enable_pdf, include_only_prefix)
-        return jsonify({'task_id': task.id})
+        
+        # タスクIDを生成
+        task_id = f"task_{int(time.time() * 1000)}"
+        
+        # バックグラウンドでスクレイピングを開始
+        thread = threading.Thread(
+            target=run_scrape_task,
+            args=(task_id, url, exclude_paths_list, enable_ocr, enable_pdf, include_only_prefix)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'task_id': task_id})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -81,19 +93,11 @@ def get_status(task_id):
     if request.method == 'OPTIONS':
         return '', 200
     try:
-        task = celery.AsyncResult(task_id)
-        if task.ready():
-            if task.successful():
-                result = task.result
-                return jsonify(result) if isinstance(result, dict) else jsonify({'status': 'completed', 'file_path': result})
-            else:
-                return jsonify({
-                    'status': 'failed',
-                    'error': str(task.result)
-                })
-        # 進捗情報を返す
-        meta = task.info if task.info else {}
-        return jsonify({'status': 'processing', **meta})
+        if task_id not in task_status:
+            return jsonify({'error': 'タスクが見つかりません'}), 404
+            
+        status = task_status[task_id]
+        return jsonify(status)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -107,13 +111,17 @@ def download_file(filename):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@celery.task(bind=True)
-def list_urls_task(self, url, exclude_paths, include_only_prefix):
+def run_list_urls_task(task_id, url, exclude_paths, include_only_prefix):
+    """バックグラウンドでURL一覧取得を実行する関数"""
     try:
+        task_status[task_id] = {'status': 'processing', 'done': 0, 'total': 0}
+        
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_file = os.path.join(UPLOAD_FOLDER, f'all_urls_{timestamp}.csv')
+        
         def progress_callback(done, total):
-            self.update_state(state='PROGRESS', meta={'done': done, 'total': total})
+            task_status[task_id].update({'done': done, 'total': total})
+            
         result = list_all_urls_with_stats(
             url,
             output_file,
@@ -121,9 +129,9 @@ def list_urls_task(self, url, exclude_paths, include_only_prefix):
             include_only_prefix=include_only_prefix,
             progress_callback=progress_callback
         )
-        return output_file
+        task_status[task_id] = {'status': 'completed', 'file_path': result}
     except Exception as e:
-        return None
+        task_status[task_id] = {'status': 'failed', 'error': str(e)}
 
 @app.route('/list_urls', methods=['POST', 'OPTIONS'])
 def list_urls():
@@ -132,14 +140,27 @@ def list_urls():
     try:
         url = request.form.get('url')
         exclude_paths = request.form.get('exclude_paths', '')
+        
         if not url:
             return jsonify({'error': 'URLが指定されていません'}), 400
+            
         exclude_paths_list = [p.strip() for p in exclude_paths.split(',') if p.strip()]
         parsed = urlparse(url)
         path = parsed.path.rstrip('/')
         include_only_prefix = [path] if path else []
-        task = list_urls_task.apply_async(args=[url, exclude_paths_list, include_only_prefix])
-        return jsonify({'task_id': task.id})
+        
+        # タスクIDを生成
+        task_id = f"task_{int(time.time() * 1000)}"
+        
+        # バックグラウンドでURL一覧取得を開始
+        thread = threading.Thread(
+            target=run_list_urls_task,
+            args=(task_id, url, exclude_paths_list, include_only_prefix)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'task_id': task_id})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
