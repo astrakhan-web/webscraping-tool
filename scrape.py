@@ -12,7 +12,11 @@ try:
     OCR_AVAILABLE = True
 except ImportError:
     OCR_AVAILABLE = False
-import fitz  # PyMuPDF
+try:
+    import fitz  # PyMuPDF
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
 from docx import Document
 import csv
 
@@ -225,7 +229,7 @@ def scrape_website(start_url, output_file, exclude_paths=None, enable_ocr=False,
             doc.add_paragraph("※ OCR機能は現在の環境では利用できません")
 
         # PDFからテキスト抽出 (ON/OFF)
-        if enable_pdf:
+        if enable_pdf and PDF_AVAILABLE:
             for link_tag in soup.find_all('a', href=True):
                 href = link_tag['href']
                 if href.lower().endswith('.pdf'):
@@ -244,6 +248,8 @@ def scrape_website(start_url, output_file, exclude_paths=None, enable_ocr=False,
                     except Exception as e:
                         print(f"PDFエラー: {full_url} - {e}")
                         continue
+        elif enable_pdf and not PDF_AVAILABLE:
+            doc.add_paragraph("※ PDF抽出機能は現在の環境では利用できません（PyMuPDFが必要）")
 
         # === 🆕 リンク収集 ===
         for link_tag in soup.find_all('a', href=True):
