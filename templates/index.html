@@ -100,8 +100,8 @@
 
             const url = document.getElementById('url').value;
             const exclude_paths = document.getElementById('exclude_paths').value;
-            const enable_ocr = document.querySelector('input[name="enable_ocr"]:checked').value;
-            const enable_pdf = document.querySelector('input[name="enable_pdf"]:checked').value;
+            const enable_ocr = 'off';  // 固定でOFF
+            const enable_pdf = 'off';  // 固定でOFF
             const loading = document.querySelector('.loading');
             const progress = document.querySelector('.progress');
             const result = document.getElementById('result');
