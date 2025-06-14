@@ -5,9 +5,13 @@ import requests
 from bs4 import BeautifulSoup
 from bs4 import Comment
 from urllib.parse import urljoin, urlparse, urlunparse
-from PIL import Image
-import pytesseract
 from io import BytesIO
+try:
+    from PIL import Image
+    import pytesseract
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
 import fitz  # PyMuPDF
 from docx import Document
 import csv
@@ -195,7 +199,7 @@ def scrape_website(start_url, output_file, exclude_paths=None, enable_ocr=False,
                     doc.add_paragraph(clean_text(text))
 
         # 画像からOCR抽出 (ON/OFF)
-        if enable_ocr:
+        if enable_ocr and OCR_AVAILABLE:
             ocr_texts = []
             for img_tag in soup.find_all('img'):
                 img_url = img_tag.get('src')
@@ -217,6 +221,8 @@ def scrape_website(start_url, output_file, exclude_paths=None, enable_ocr=False,
                 doc.add_heading("画像から抽出されたテキスト", level=2)
                 for ocr_text in ocr_texts:
                     doc.add_paragraph(clean_text(ocr_text))
+        elif enable_ocr and not OCR_AVAILABLE:
+            doc.add_paragraph("※ OCR機能は現在の環境では利用できません")
 
         # PDFからテキスト抽出 (ON/OFF)
         if enable_pdf:
