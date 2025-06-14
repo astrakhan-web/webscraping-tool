@@ -7,4 +7,8 @@ services:
     startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.0 
+        value: 3.11.0
+      - key: BASIC_AUTH_USERNAME
+        value: astrakhan
+      - key: BASIC_AUTH_PASSWORD
+        value: webscraping2024 

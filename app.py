@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, send_file, jsonify
+from flask_httpauth import HTTPBasicAuth
 import os
 from datetime import datetime
 from scrape import scrape_website, list_all_urls, list_all_urls_with_stats
@@ -7,6 +8,15 @@ import threading
 import time
 
 app = Flask(__name__)
+auth = HTTPBasicAuth()
+
+# Basic認証の設定
+USERNAME = os.environ.get('BASIC_AUTH_USERNAME', 'ast')
+PASSWORD = os.environ.get('BASIC_AUTH_PASSWORD', 'ast')
+
+@auth.verify_password
+def verify_password(username, password):
+    return username == USERNAME and password == PASSWORD
 
 # CORSの設定を追加
 @app.after_request
@@ -25,6 +35,7 @@ if not os.path.exists(UPLOAD_FOLDER):
 task_status = {}
 
 @app.route('/')
+@auth.login_required
 def index():
     return render_template('index.html')
 
@@ -54,6 +65,7 @@ def run_scrape_task(task_id, url, exclude_paths, enable_ocr, enable_pdf, include
         task_status[task_id] = {'status': 'failed', 'error': str(e)}
 
 @app.route('/scrape', methods=['POST', 'OPTIONS'])
+@auth.login_required
 def start_scrape():
     if request.method == 'OPTIONS':
         return '', 200
@@ -89,6 +101,7 @@ def start_scrape():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/status/<task_id>', methods=['GET', 'OPTIONS'])
+@auth.login_required
 def get_status(task_id):
     if request.method == 'OPTIONS':
         return '', 200
@@ -102,6 +115,7 @@ def get_status(task_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/download/<path:filename>', methods=['GET', 'OPTIONS'])
+@auth.login_required
 def download_file(filename):
     if request.method == 'OPTIONS':
         return '', 200
@@ -134,6 +148,7 @@ def run_list_urls_task(task_id, url, exclude_paths, include_only_prefix):
         task_status[task_id] = {'status': 'failed', 'error': str(e)}
 
 @app.route('/list_urls', methods=['POST', 'OPTIONS'])
+@auth.login_required
 def list_urls():
     if request.method == 'OPTIONS':
         return '', 200
