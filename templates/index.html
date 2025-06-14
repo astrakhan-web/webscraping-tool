@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ウェブスクレイピングツール</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">ウェブスクレイピングツール</h1>
+
+        <div class="card">
+            <div class="card-body">
+                <form id="scrapeForm">
+                    <div class="mb-3">
+                        <label for="url" class="form-label">スクレイピング対象のドメイン</label>
+                        <input type="url" class="form-control" id="url" name="url" required placeholder="https://example.com/">
+                    </div>
+                    <div class="mb-3">
+                        <label for="exclude_paths" class="form-label">除外したいディレクトリパス<span class="note">（カンマ区切りで複数指定可）</span></label>
+                        <input type="text" class="form-control" id="exclude_paths" name="exclude_paths" placeholder="/en,/pressroom">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">画像OCR<span
+                                class="note">（AIが画像を分析してテキストを抽出します・激重い作業なのでエラーがよくでます）</span></label>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="enable_ocr" id="ocr_off" value="off"
+                                checked>
+                            <label class="form-check-label" for="ocr_off">OFF（推奨）</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="enable_ocr" id="ocr_on" value="on">
+                            <label class="form-check-label" for="ocr_on">ON</label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">PDF抽出（PDFのデータも抽出します。重くなります）</label>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="enable_pdf" id="pdf_off" value="off"
+                                checked>
+                            <label class="form-check-label" for="pdf_off">OFF（推奨）</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="enable_pdf" id="pdf_on" value="on">
+                            <label class="form-check-label" for="pdf_on">ON</label>
+                        </div>
+                    </div>
+                    <div class="alert alert-warning mt-3" id="heavyNotice">
+                        ※ 画像OCRやPDF抽出をONにすると、処理が非常に重くなりダウンロードエラーが発生する場合があります。通常はOFF（推奨）でご利用ください。
+                    </div>
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-success ms-2" id="listUrlsBtn">ページ一覧をCSVでダウンロード</button>
+                        <button type="submit" class="btn btn-primary">スクレイピング開始</button>
+                    </div>
+                </form>
+
+
+                <div class="loading mt-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span class="ms-2">スクレイピング中...</span>
+                </div>
+
+                <div class="progress mt-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+                        style="width: 100%"></div>
+                </div>
+
+                <div id="result" class="mt-3"></div>
+                <div id="urlListResult" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function handleResponse(response) {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                return await response.json();
+            }
+            throw new Error('サーバーからの応答が不正な形式です');
+        }
+
+        document.getElementById('scrapeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const url = document.getElementById('url').value;
+            const exclude_paths = document.getElementById('exclude_paths').value;
+            const enable_ocr = document.querySelector('input[name="enable_ocr"]:checked').value;
+            const enable_pdf = document.querySelector('input[name="enable_pdf"]:checked').value;
+            const loading = document.querySelector('.loading');
+            const progress = document.querySelector('.progress');
+            const result = document.getElementById('result');
+
+            loading.style.display = 'block';
+            progress.style.display = 'block';
+            result.innerHTML = '';
+
+            try {
+                const params = new URLSearchParams();
+                params.append('url', url);
+                params.append('exclude_paths', exclude_paths);
+                params.append('enable_ocr', enable_ocr);
+                params.append('enable_pdf', enable_pdf);
+
+                const response = await fetch('/scrape', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: params.toString()
+                });
+
+                const data = await handleResponse(response);
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // タスクの状態を定期的に確認
+                const checkStatus = async () => {
+                    try {
+                        const statusResponse = await fetch(`/status/${data.task_id}`);
+                        const statusData = await handleResponse(statusResponse);
+
+                        if (statusData.status === 'completed') {
+                            loading.style.display = 'none';
+                            progress.style.display = 'none';
+                            result.innerHTML = `
+                                <div class="alert alert-success">
+                                    スクレイピングが完了しました！
+                                    <a href="/download/${statusData.file_path}" class="btn btn-success ms-3">
+                                        ダウンロード
+                                    </a>
+                                </div>
+                            `;
+                        } else if (statusData.status === 'failed') {
+                            loading.style.display = 'none';
+                            progress.style.display = 'none';
+                            result.innerHTML = `
+                                <div class="alert alert-danger">
+                                    エラーが発生しました: ${statusData.error}
+                                </div>
+                            `;
+                        } else {
+                            // 進捗表示を追加
+                            if (typeof statusData.done !== 'undefined' && typeof statusData.total !== 'undefined') {
+                                const percent = statusData.total > 0 ? Math.floor((statusData.done / statusData.total) * 100) : 0;
+                                loading.style.display = 'none';
+                                progress.style.display = 'none';
+                                result.innerHTML = `<div class='alert alert-info'>スクレイピング中... ${percent}% (${statusData.done} / ${statusData.total}件)</div>`;
+                            } else {
+                                result.innerHTML = `<div class='alert alert-info'>スクレイピング中...</div>`;
+                            }
+                            setTimeout(checkStatus, 2000);
+                        }
+                    } catch (error) {
+                        loading.style.display = 'none';
+                        progress.style.display = 'none';
+                        result.innerHTML = `
+                            <div class="alert alert-danger">
+                                ステータス確認中にエラーが発生しました: ${error.message}
+                            </div>
+                        `;
+                    }
+                };
+
+                checkStatus();
+            } catch (error) {
+                loading.style.display = 'none';
+                progress.style.display = 'none';
+                result.innerHTML = `
+                    <div class="alert alert-danger">
+                        エラーが発生しました: ${error.message}
+                    </div>
+                `;
+            }
+        });
+
+        document.getElementById('listUrlsBtn').addEventListener('click', async () => {
+            const url = document.getElementById('url').value;
+            const exclude_paths = document.getElementById('exclude_paths').value;
+            const urlListResult = document.getElementById('urlListResult');
+            urlListResult.innerHTML = '<div class="alert alert-info">ページ一覧を取得中...</div>';
+
+            try {
+                const params = new URLSearchParams();
+                params.append('url', url);
+                params.append('exclude_paths', exclude_paths);
+
+                const response = await fetch('/list_urls', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: params.toString()
+                });
+                const data = await handleResponse(response);
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                // 進捗ポーリング
+                const checkStatus = async () => {
+                    const statusResponse = await fetch(`/status/${data.task_id}`);
+                    const statusData = await handleResponse(statusResponse);
+                    if (statusData.status === 'completed') {
+                        urlListResult.innerHTML = `
+                            <div class="alert alert-success">
+                                ページ一覧の取得が完了しました！
+                                <a href="/download/${statusData.file_path}" class="btn btn-success ms-3">ダウンロード</a>
+                            </div>
+                        `;
+                    } else if (statusData.status === 'failed') {
+                        urlListResult.innerHTML = `
+                            <div class="alert alert-danger">
+                                エラーが発生しました: ${statusData.error}
+                            </div>
+                        `;
+                    } else {
+                        // 進捗表示
+                        if (typeof statusData.done !== 'undefined' && typeof statusData.total !== 'undefined') {
+                            const percent = statusData.total > 0 ? Math.floor((statusData.done / statusData.total) * 100) : 0;
+                            urlListResult.innerHTML = `<div class='alert alert-info'>ページ一覧を取得中... ${percent}% (${statusData.done} / ${statusData.total}件)</div>`;
+                        } else {
+                            urlListResult.innerHTML = `<div class='alert alert-info'>ページ一覧を取得中...</div>`;
+                        }
+                        setTimeout(checkStatus, 500);
+                    }
+                };
+                checkStatus();
+            } catch (error) {
+                urlListResult.innerHTML = `
+                    <div class="alert alert-danger">
+                        エラーが発生しました: ${error.message}
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+
+</html>

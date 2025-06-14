@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: webscraping-app
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: webscraping-redis
+          property: connectionString
+
+  - type: worker
+    name: webscraping-worker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A app.celery worker --loglevel=info
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: webscraping-redis
+          property: connectionString
+
+  - type: redis
+    name: webscraping-redis
+    plan: free 
